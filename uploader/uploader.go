@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"mime/multipart"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"os"
+	"time"
 )
 
 type FileUploader struct {
@@ -71,6 +74,12 @@ func (fileUploader *FileUploader) Login(username string, password string) error 
       }
     }
 	}
+
+  err = fileUploader.storeAccountData(username, password)
+
+  if err != nil {
+    return errors.New("Falha ao armazenar dados da conta")
+  }
 
 	return nil
 }
@@ -161,6 +170,42 @@ func (fileUploader *FileUploader) validateMfa(token string) (bool, error) {
   }
 
   return true, nil
+}
+
+func (fileUploader *FileUploader) storeAccountData(username string, password string) error {
+  accountData := map[string] any {
+    "url": fileUploader.accountUrl.String(),
+    "username": username,
+    "password": password,
+    "token": map[string] any {
+      "expires": time.Now().Add(time.Hour * 6),
+      "value": fileUploader.getCookie("VtexIdclientAutCookie"),
+    },
+  }
+
+  jsonData, err := json.Marshal(accountData)
+
+  if err != nil {
+    return errors.New("Falha ao armazenar dados da conta.")
+  }
+
+  err = os.WriteFile("account.json", jsonData, fs.ModePerm)
+
+  if err != nil {
+    return errors.New("Falha ao armazenar dados da conta.")
+  }
+
+  return nil
+}
+
+func (fileUploader *FileUploader) getCookie(name string) string {
+  for _, cookie := range fileUploader.client.Jar.Cookies(fileUploader.accountUrl) {
+    if cookie.Name == name {
+      return cookie.Value
+    }
+  }
+
+  return ""
 }
 
 func (fileUploader *FileUploader) Upload(filePath string) error {

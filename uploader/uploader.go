@@ -9,12 +9,10 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
-	"strings"
 )
 
 type FileUploader struct {
-	accountName        string
-	accountEnvironment string
+  accountUrl *url.URL
 	client             *http.Client
 }
 
@@ -25,38 +23,17 @@ func NewFileUploader(accountUrl string) (*FileUploader, error) {
 		return nil, errors.New("Falha ao criar o FileUploader. A inicialização do cookiejar falhou")
 	}
 
-	accountInfos, err := getAccountInfos(accountUrl)
+  parsedUrl, err := url.Parse(accountUrl)
 
-	if err != nil {
-		error := fmt.Sprintf("Falha ao criar o FileUploader: %s", err)
-		return nil, errors.New(error)
-	}
+  if err != nil {
+    return nil, errors.New("Falha ao criar o FileUploader. URL inválida")
+  }
 
 	return &FileUploader{
-		accountName:        accountInfos["accountName"],
-		accountEnvironment: accountInfos["accountEnvironment"],
+    accountUrl: parsedUrl,
 		client: &http.Client{
 			Jar: jar,
 		},
-	}, nil
-}
-
-func getAccountInfos(accountUrl string) (map[string]string, error) {
-	url, err := url.Parse(accountUrl)
-
-	if err != nil {
-		return nil, errors.New("Falha ao obter as informações da conta")
-	}
-
-	host := url.Hostname()
-	splitedHost := strings.SplitN(host, ".", 2)
-
-	name := splitedHost[0]
-	env := splitedHost[1]
-
-	return map[string]string{
-		"accountName":        name,
-		"accountEnvironment": env,
 	}, nil
 }
 
@@ -100,9 +77,8 @@ func (fileUploader *FileUploader) Login(username string, password string) error 
 
 func (fileUploader *FileUploader) startLogin(user string) error {
 	path := "/api/vtexid/pub/authentication/startlogin"
-	url := fmt.Sprintf("https://%s.%s%s",
-		fileUploader.accountName,
-		fileUploader.accountEnvironment,
+	url := fmt.Sprintf("%s/%s",
+    fileUploader.accountUrl,
 		path)
 
 	body := &bytes.Buffer{}
@@ -124,9 +100,8 @@ func (fileUploader *FileUploader) startLogin(user string) error {
 
 func (fileUploader *FileUploader) validateLogin(user string, password string) (requireMfa bool, err error) {
 	path := "/api/vtexid/pub/authentication/classic/validate"
-	url := fmt.Sprintf("https://%s.%s%s",
-		fileUploader.accountName,
-		fileUploader.accountEnvironment,
+	url := fmt.Sprintf("%s/%s",
+    fileUploader.accountUrl,
 		path)
 
 	body := &bytes.Buffer{}
@@ -158,9 +133,8 @@ func (fileUploader *FileUploader) validateLogin(user string, password string) (r
 
 func (fileUploader *FileUploader) validateMfa(token string) (bool, error) {
 	path := "/api/vtexid/pub/mfa/validate"
-	url := fmt.Sprintf("https://%s.%s%s",
-		fileUploader.accountName,
-		fileUploader.accountEnvironment,
+	url := fmt.Sprintf("%s/%s",
+    fileUploader.accountUrl,
 		path)
 
   body := &bytes.Buffer{}

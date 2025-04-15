@@ -15,8 +15,20 @@ import (
 )
 
 type FileUploader struct {
-  accountUrl *url.URL
-	client             *http.Client
+	accountUrl *url.URL
+	client     *http.Client
+}
+
+type accountData struct {
+	Url      string       `json:"url"`
+	Username string       `json:"username"`
+	Password string       `json:"password"`
+	Token    accountToken `json:"token"`
+}
+
+type accountToken struct {
+	Expires time.Time `json:"expires"`
+	Value   string    `json:"value"`
 }
 
 func NewFileUploader(accountUrl string) (*FileUploader, error) {
@@ -26,14 +38,14 @@ func NewFileUploader(accountUrl string) (*FileUploader, error) {
 		return nil, errors.New("Falha ao criar o FileUploader. A inicialização do cookiejar falhou")
 	}
 
-  parsedUrl, err := url.Parse(accountUrl)
+	parsedUrl, err := url.Parse(accountUrl)
 
-  if err != nil {
-    return nil, errors.New("Falha ao criar o FileUploader. URL inválida")
-  }
+	if err != nil {
+		return nil, errors.New("Falha ao criar o FileUploader. URL inválida")
+	}
 
 	return &FileUploader{
-    accountUrl: parsedUrl,
+		accountUrl: parsedUrl,
 		client: &http.Client{
 			Jar: jar,
 		},
@@ -54,32 +66,32 @@ func (fileUploader *FileUploader) Login(username string, password string) error 
 	}
 
 	if requiresMfa {
-    for {
-      var token string
+		for {
+			var token string
 
-      fmt.Print("Insira o código de autenticação: ")
-      fmt.Scan(&token)
-      
-      mfaSuccess, err := fileUploader.validateMfa(token)
+			fmt.Print("Insira o código de autenticação: ")
+			fmt.Scan(&token)
 
-      if err != nil {
-        return err
-      }
+			mfaSuccess, err := fileUploader.validateMfa(token)
 
-      if mfaSuccess {
-        fmt.Println("Autenticado com sucesso.")
-        break
-      } else {
-        fmt.Println("Código inválido.")
-      }
-    }
+			if err != nil {
+				return err
+			}
+
+			if mfaSuccess {
+				fmt.Println("Autenticado com sucesso.")
+				break
+			} else {
+				fmt.Println("Código inválido.")
+			}
+		}
 	}
 
-  err = fileUploader.storeAccountData(username, password)
+	err = fileUploader.storeAccountData(username, password)
 
-  if err != nil {
-    return errors.New("Falha ao armazenar dados da conta")
-  }
+	if err != nil {
+		return errors.New("Falha ao armazenar dados da conta")
+	}
 
 	return nil
 }
@@ -87,7 +99,7 @@ func (fileUploader *FileUploader) Login(username string, password string) error 
 func (fileUploader *FileUploader) startLogin(user string) error {
 	path := "/api/vtexid/pub/authentication/startlogin"
 	url := fmt.Sprintf("%s/%s",
-    fileUploader.accountUrl,
+		fileUploader.accountUrl,
 		path)
 
 	body := &bytes.Buffer{}
@@ -110,7 +122,7 @@ func (fileUploader *FileUploader) startLogin(user string) error {
 func (fileUploader *FileUploader) validateLogin(user string, password string) (requireMfa bool, err error) {
 	path := "/api/vtexid/pub/authentication/classic/validate"
 	url := fmt.Sprintf("%s/%s",
-    fileUploader.accountUrl,
+		fileUploader.accountUrl,
 		path)
 
 	body := &bytes.Buffer{}
@@ -143,69 +155,131 @@ func (fileUploader *FileUploader) validateLogin(user string, password string) (r
 func (fileUploader *FileUploader) validateMfa(token string) (bool, error) {
 	path := "/api/vtexid/pub/mfa/validate"
 	url := fmt.Sprintf("%s/%s",
-    fileUploader.accountUrl,
+		fileUploader.accountUrl,
 		path)
 
-  body := &bytes.Buffer{}
+	body := &bytes.Buffer{}
 
-  writer := multipart.NewWriter(body)
-  writer.WriteField("mfaToken", token)
-  writer.Close()
+	writer := multipart.NewWriter(body)
+	writer.WriteField("mfaToken", token)
+	writer.Close()
 
-  contentType := fmt.Sprintf("multipart/form-data; boundary=%s", writer.Boundary())
-  
-  resp, err := fileUploader.client.Post(url, contentType, body)
+	contentType := fmt.Sprintf("multipart/form-data; boundary=%s", writer.Boundary())
 
-  if err != nil {
-    return false, errors.New("Falha na validação MFA.")
-  }
+	resp, err := fileUploader.client.Post(url, contentType, body)
 
-  respJson := make(map[string]any)
+	if err != nil {
+		return false, errors.New("Falha na validação MFA.")
+	}
 
-  decoder := json.NewDecoder(resp.Body)
-  decoder.Decode(&respJson)
+	respJson := make(map[string]any)
 
-  if respJson["authStatus"] != "Success" {
-    return false, nil
-  }
+	decoder := json.NewDecoder(resp.Body)
+	decoder.Decode(&respJson)
 
-  return true, nil
+	if respJson["authStatus"] != "Success" {
+		return false, nil
+	}
+
+	return true, nil
 }
 
 func (fileUploader *FileUploader) storeAccountData(username string, password string) error {
-  accountData := map[string] any {
-    "url": fileUploader.accountUrl.String(),
-    "username": username,
-    "password": password,
-    "token": map[string] any {
-      "expires": time.Now().Add(time.Hour * 6),
-      "value": fileUploader.getCookie("VtexIdclientAutCookie"),
-    },
-  }
+	data := accountData{
+		Url:      fileUploader.accountUrl.String(),
+		Username: username,
+		Password: password,
+		Token: accountToken{
+			Expires: time.Now().Add(time.Hour * 6),
+			Value:   fileUploader.getCookie("VtexIdclientAutCookie"),
+		},
+	}
 
-  jsonData, err := json.Marshal(accountData)
+	jsonData, err := json.Marshal(data)
 
-  if err != nil {
-    return errors.New("Falha ao armazenar dados da conta.")
-  }
+	if err != nil {
+		return errors.New("Falha ao armazenar dados da conta.")
+	}
 
-  err = os.WriteFile("account.json", jsonData, fs.ModePerm)
+	err = os.WriteFile("account.json", jsonData, fs.ModePerm)
 
-  if err != nil {
-    return errors.New("Falha ao armazenar dados da conta.")
-  }
+	if err != nil {
+		return errors.New("Falha ao armazenar dados da conta.")
+	}
 
-  return nil
+	return nil
 }
 
 func (fileUploader *FileUploader) getCookie(name string) string {
-  for _, cookie := range fileUploader.client.Jar.Cookies(fileUploader.accountUrl) {
-    if cookie.Name == name {
-      return cookie.Value
-    }
-  }
+	for _, cookie := range fileUploader.client.Jar.Cookies(fileUploader.accountUrl) {
+		if cookie.Name == name {
+			return cookie.Value
+		}
+	}
 
-  return ""
+	return ""
+}
+
+func IsLoggedIn() bool {
+	file, err := os.ReadFile("account.json")
+
+	if err != nil {
+		return false
+	}
+
+	var accData accountData
+
+	err = json.Unmarshal(file, &accData)
+
+	if err != nil {
+		return false
+	}
+
+	if accData.Url == "" ||
+		accData.Username == "" ||
+		accData.Password == "" ||
+		accData.Token.Value == "" ||
+		accData.Token.Expires.Compare(time.Now()) == -1 {
+		return false
+	}
+
+	return true
+}
+
+func Load() (*FileUploader, error) {
+	var accData accountData
+
+	file, err := os.ReadFile("account.json")
+
+	if err != nil {
+		return nil, errors.New("Falha ao carregar dados. Erro ao ler o arquivo account.json")
+	}
+
+	err = json.Unmarshal(file, &accData)
+
+	if err != nil {
+		return nil, errors.New("Falha ao carregar dados. Arquivo JSON inválido.")
+	}
+
+	fileUploader, err := NewFileUploader(accData.Url)
+
+	if err != nil {
+		return nil, errors.New("Falha ao carregar dados. Erro ao criar o FileUploader.")
+	}
+
+	cookie := &http.Cookie{
+		Name:   "VtexIdclientAutCookie",
+		Quoted: false,
+		Domain: fileUploader.accountUrl.Host,
+	}
+
+	fileUploader.client.Jar.SetCookies(fileUploader.accountUrl, []*http.Cookie{cookie})
+
+	for _, cook := range fileUploader.client.Jar.Cookies(fileUploader.accountUrl) {
+		fmt.Println(cook.Value)
+	}
+
+	return fileUploader, nil
 }
 
 func (fileUploader *FileUploader) Upload(filePath string) error {
